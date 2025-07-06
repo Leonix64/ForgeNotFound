@@ -1,0 +1,12 @@
+Test05/
+logs/
+crash-reports/
+usercache.json
+whitelist.json
+ops.json
+banned-*.json
+eula.txt
+server.properties
+*.bat
+
+.vscode/
