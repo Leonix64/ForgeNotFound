@@ -6,7 +6,7 @@ pipeline {
     }
 
     stages {
-        stage('Obtener Cambios') {
+        stage('Get changes') {
             steps {
                 git branch: 'main', 
                     url: 'https://github.com/Leonix64/ForgeNotFound.git'
@@ -19,7 +19,7 @@ pipeline {
             }
         }
         
-        stage('Desplegar') {
+        stage('Deploy') {
             steps {
                 sh 'taskkill /F /IM java.exe'
                 
