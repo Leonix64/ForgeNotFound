@@ -1,0 +1,31 @@
+/*.log-output {
+  font-family: monospace;
+  font-size: 0.9em;
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+  border-radius: 8px;
+  padding: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}*/
+
+.log-output {
+  background: #0f0f0f;
+  border-left: 5px solid #0f62fe;
+  padding: 12px;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.9em;
+  color: #d4d4d4;
+  max-height: 60vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+ion-button {
+  margin-top: 10px;
+}
+
+ion-badge {
+  font-size: 0.9em;
+  text-transform: capitalize;
+}

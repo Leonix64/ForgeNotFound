@@ -1,12 +1,12 @@
 Test05/
 logs/
-crash-reports/
+#crash-reports/
 usercache.json
-whitelist.json
+#whitelist.json
 ops.json
-banned-*.json
-eula.txt
-server.properties
-*.bat
+#banned-*.json
+#eula.txt
+#server.properties
+#*.bat
 
 .vscode/

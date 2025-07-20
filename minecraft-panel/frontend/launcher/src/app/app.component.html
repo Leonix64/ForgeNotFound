@@ -1,0 +1,135 @@
+<ion-header>
+  <ion-toolbar color="primary">
+    <ion-title>
+      <ion-icon name="cube-outline"></ion-icon>
+      Minecraft Server Panel
+    </ion-title>
+  </ion-toolbar>
+  
+  <ion-segment [(ngModel)]="selectedTab" value="inicio">
+    <ion-segment-button value="inicio">
+      <ion-label>Inicio</ion-label>
+    </ion-segment-button>
+    <ion-segment-button value="comandos">
+      <ion-label>Comandos</ion-label>
+    </ion-segment-button>
+    <ion-segment-button value="logs">
+      <ion-label>Logs</ion-label>
+    </ion-segment-button>
+    <ion-segment-button value="jugadores">
+      <ion-label>Jugadores</ion-label>
+    </ion-segment-button>
+    <ion-segment-button value="backups">
+      <ion-label>Backups</ion-label>
+    </ion-segment-button>
+    <ion-segment-button value="config">
+      <ion-label>Configuración</ion-label>
+    </ion-segment-button>
+  </ion-segment>
+</ion-header>
+
+<ion-content class="ion-padding">
+
+  <!-- Inicio -->
+  <div *ngIf="selectedTab === 'inicio'">
+    <ion-card>
+      <ion-card-header>
+        <ion-card-title>Control de Servidor</ion-card-title>
+        <ion-badge [color]="serverStatus === 'en ejecucion' ? 'success' : 'danger'">{{ serverStatus }}</ion-badge>
+      </ion-card-header>
+      <ion-card-content>
+        <ion-button expand="block" color="success" (click)="startServer()" [disabled]="loading">
+          <ion-spinner *ngIf="loading"></ion-spinner>
+          Iniciar Servidor
+        </ion-button>
+        <ion-button expand="block" color="danger" (click)="stopServer()" [disabled]="loading">
+          <ion-spinner *ngIf="loading"></ion-spinner>
+          Detener Servidor
+        </ion-button>
+      </ion-card-content>
+    </ion-card>
+  </div>
+
+  <!-- Comandos -->
+   <div *ngIf="selectedTab === 'comandos'">
+    <ion-card>
+      <ion-card-header>
+        <ion-card-title>Comandos del Servidor</ion-card-title>
+      </ion-card-header>
+      <ion-card-content>
+        <ion-item>
+          <ion-input [(ngModel)]="command" placeholder="Escribe un comando" (keyup.enter)="sendCommand()" clearInput></ion-input>
+          <ion-button slot="end" (click)="sendCommand()" [disabled]="!command.trim()">Enviar</ion-button>
+        </ion-item>
+        <!-- Aqui se pueden meter mas comandos -->
+      </ion-card-content>
+    </ion-card>
+   </div>
+
+  <!-- Logs -->
+   <div *ngIf="selectedTab === 'logs'">
+    <ion-card>
+      <ion-card-header>
+        <ion-card-title>Logs del Servidor</ion-card-title>
+      </ion-card-header>
+      <ion-card-content>
+        <ion-textarea #logTextarea [value]="logs" rows="50" readonly class="log-output" wrap="off"></ion-textarea>
+      </ion-card-content>
+    </ion-card>
+   </div>
+
+  <!-- Jugadores -->
+   <div *ngIf="selectedTab === 'jugadores'">
+    <ion-card>
+      <ion-card-header>
+        <ion-card-title>Jugadores Online</ion-card-title>
+        <ion-button size="small" fill="clear" (click)="loadPlayers()">
+          <ion-icon name="refresh-outline"></ion-icon>
+          Actualizar
+        </ion-button>
+      </ion-card-header>
+      <ion-card-content>
+        <p>En desarrollo</p>
+        <ion-list *ngIf="players.length > 0; else sinJugadores">
+          <ion-item *ngFor="let player of players">
+            <ion-label>
+              <h2>{{ player.name }}</h2>
+              <p>Hora de entrada: {{ player.joined_at }}</p>
+              <p>Tiempo en linea: {{ getOnlineTime(player.joined_at) }}</p>
+            </ion-label>
+          </ion-item>
+        </ion-list>
+        <ng-template #sinJugadores>
+          <ion-item>
+            <ion-note color="medium">No hay jugadores conectados</ion-note>
+          </ion-item>
+        </ng-template>
+      </ion-card-content>
+    </ion-card>
+   </div>
+
+  <!-- Backups -->
+   <div *ngIf="selectedTab === 'backups'">
+    <ion-card>
+      <ion-card-header>
+        <ion-card-title>Backups del Servidor</ion-card-title>
+      </ion-card-header>
+      <ion-card-content>
+        <ion-button expand="block" color="tertiary">Crear Backup</ion-button>
+        <p>Lista de backups disponibles para descarga</p>
+      </ion-card-content>
+    </ion-card>
+   </div>
+
+  <!-- Configuración -->
+   <div *ngIf="selectedTab === 'config'">
+    <ion-card>
+      <ion-card-header>
+        <ion-card-title>Configuración del Servidor</ion-card-title>
+      </ion-card-header>
+      <ion-card-content>
+        <p>Configurador visual de `server.properties` proximamente</p>
+      </ion-card-content>
+    </ion-card>
+   </div>
+</ion-content>

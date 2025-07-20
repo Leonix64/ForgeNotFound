@@ -1,0 +1,7 @@
+{
+  "name": "launcher",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "angular"
+}
