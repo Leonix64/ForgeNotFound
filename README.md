@@ -120,5 +120,5 @@ pause
 
 ## 🎮 ¡Listo para jugar!
 
-Ahora solo te queda prender el servidor y disfrutar. Puedes subir este proyecto a Git y mantenerlo versionado como Dios manda.
+Ahora solo te queda prender el servidor y disfrutar.
 

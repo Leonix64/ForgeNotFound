@@ -5,8 +5,8 @@
       Minecraft Server Panel
     </ion-title>
   </ion-toolbar>
-  
-  <ion-segment [(ngModel)]="selectedTab" value="inicio">
+
+  <ion-segment [(ngModel)]="selectedTab">
     <ion-segment-button value="inicio">
       <ion-label>Inicio</ion-label>
     </ion-segment-button>
@@ -29,12 +29,11 @@
 </ion-header>
 
 <ion-content class="ion-padding">
-
   <!-- Inicio -->
-  <div *ngIf="selectedTab === 'inicio'">
+  <div *ngIf="selectedTab === 'inicio'" class="section-inicio">
     <ion-card>
       <ion-card-header>
-        <ion-card-title>Control de Servidor</ion-card-title>
+        <ion-card-title>Estado del Servidor</ion-card-title>
         <ion-badge [color]="serverStatus === 'en ejecucion' ? 'success' : 'danger'">{{ serverStatus }}</ion-badge>
       </ion-card-header>
       <ion-card-content>
@@ -46,28 +45,92 @@
           <ion-spinner *ngIf="loading"></ion-spinner>
           Detener Servidor
         </ion-button>
+
+        <ion-item>
+          <ion-label>MCPU: {{ cpuUsage }}%</ion-label>
+        </ion-item>
+        <ion-item>
+          <ion-label>RAM: {{ memoryUsage | number:'1.0-2'}} MB</ion-label>
+        </ion-item>
       </ion-card-content>
     </ion-card>
   </div>
 
   <!-- Comandos -->
-   <div *ngIf="selectedTab === 'comandos'">
+  <div *ngIf="selectedTab === 'comandos'" class="section-comandos">
     <ion-card>
       <ion-card-header>
-        <ion-card-title>Comandos del Servidor</ion-card-title>
+        <ion-card-title>Enviar Comando</ion-card-title>
       </ion-card-header>
       <ion-card-content>
         <ion-item>
-          <ion-input [(ngModel)]="command" placeholder="Escribe un comando" (keyup.enter)="sendCommand()" clearInput></ion-input>
-          <ion-button slot="end" (click)="sendCommand()" [disabled]="!command.trim()">Enviar</ion-button>
+          <ion-label>Jugador</ion-label>
+          <ion-select [(ngModel)]="selectedPlayer" interface="popover" placeholder="Selecciona uno">
+            <ion-select-option *ngFor="let p of players" [value]="p">{{ p }}</ion-select-option>
+          </ion-select>
         </ion-item>
-        <!-- Aqui se pueden meter mas comandos -->
+        <ion-item>
+          <ion-label>Comando rapido</ion-label>
+          <ion-select [(ngModel)]="selectedQuickCommand" (ionChange)="fillQuickCommand()" placeholder="Ej: kick, op...">
+            <ion-select-option *ngFor="let c of quickCommands" [value]="c">{{ c.label }}</ion-select-option>
+          </ion-select>
+        </ion-item>
+
+        <ion-item>
+          <ion-input [(ngModel)]="command" placeholder="Escribe un comando o selecciona" (key.enter)="sendCommand()" clearInput></ion-input>
+        </ion-item>
+
+        <ion-button expand="block" (click)="sendCommand()">
+          <ion-icon slot="start" name="terminal-outline"></ion-icon>
+          Ejecutar
+        </ion-button>
+
+        <ion-text color="medium">
+          <p>{{ commandResponse }}</p>
+        </ion-text>
+
+        <ion-grid>
+          <ion-row>
+            <ion-col size="6">
+              <ion-button expand="block" color="warning" (click)="runQuick('time set day')">Dia</ion-button>
+            </ion-col>
+            <ion-col size="6">
+              <ion-button expand="block" color="dark" (click)="runQuick('time set night')">Noche</ion-button>
+            </ion-col>
+          </ion-row>
+
+          <ion-row>
+            <ion-col size="4">
+              <ion-button expand="block" color="success" (click)="runQuick('weather clear')">Clear</ion-button>
+            </ion-col>
+            <ion-col size="4">
+              <ion-button expand="block" color="primary" (click)="runQuick('weather rain')">Rain</ion-button>
+            </ion-col>
+            <ion-col size="4">
+              <ion-button expand="block" color="tertiary" (click)="runQuick('weather thunder')">Tormenta</ion-button>
+            </ion-col>
+          </ion-row>
+        </ion-grid>
       </ion-card-content>
     </ion-card>
-   </div>
+
+    <!-- SERVER DICE SAY -->
+    <ion-card>
+      <ion-card-header>
+        <ion-card-title>Mensaje de difusion</ion-card-title>
+      </ion-card-header>
+      <ion-card-content>
+        <ion-item>
+          <ion-input [(ngModel)]="messageToBroadcast" placeholder="Mensaje global" (keyup.enter)="broadcastMessage()"
+            clearInput></ion-input>
+          <ion-button slot="end" (click)="broadcastMessage()" [disabled]="!messageToBroadcast.trim()">Decir</ion-button>
+        </ion-item>
+      </ion-card-content>
+    </ion-card>
+  </div>
 
   <!-- Logs -->
-   <div *ngIf="selectedTab === 'logs'">
+  <div *ngIf="selectedTab === 'logs'" class="section-logs">
     <ion-card>
       <ion-card-header>
         <ion-card-title>Logs del Servidor</ion-card-title>
@@ -76,27 +139,37 @@
         <ion-textarea #logTextarea [value]="logs" rows="50" readonly class="log-output" wrap="off"></ion-textarea>
       </ion-card-content>
     </ion-card>
-   </div>
+  </div>
 
   <!-- Jugadores -->
-   <div *ngIf="selectedTab === 'jugadores'">
+  <div *ngIf="selectedTab === 'jugadores'" class="section-jugadores">
     <ion-card>
       <ion-card-header>
-        <ion-card-title>Jugadores Online</ion-card-title>
+        <ion-card-title>Jugadores Online - {{ players.length }}</ion-card-title>
         <ion-button size="small" fill="clear" (click)="loadPlayers()">
           <ion-icon name="refresh-outline"></ion-icon>
           Actualizar
         </ion-button>
       </ion-card-header>
       <ion-card-content>
-        <p>En desarrollo</p>
         <ion-list *ngIf="players.length > 0; else sinJugadores">
           <ion-item *ngFor="let player of players">
+            <ion-avatar slot="start">
+              <img [src]="'https://mc-heads.net/avatar/' + player" alt="{{ player }}'s avatar">
+            </ion-avatar>
             <ion-label>
-              <h2>{{ player.name }}</h2>
-              <p>Hora de entrada: {{ player.joined_at }}</p>
-              <p>Tiempo en linea: {{ getOnlineTime(player.joined_at) }}</p>
+              <h2>{{ player }}</h2>
             </ion-label>
+            <ion-buttons slot="end">
+              <ion-button color="warning" (click)="kickPlayer(player)">
+                <ion-icon name="exit-outline"></ion-icon>
+                Kickear
+              </ion-button>
+              <ion-button color="danger" (click)="banPlayer(player)">
+                <ion-icon name="ban-outline"></ion-icon>
+                Banear
+              </ion-button>
+            </ion-buttons>
           </ion-item>
         </ion-list>
         <ng-template #sinJugadores>
@@ -106,30 +179,75 @@
         </ng-template>
       </ion-card-content>
     </ion-card>
-   </div>
+  </div>
 
   <!-- Backups -->
-   <div *ngIf="selectedTab === 'backups'">
+  <div *ngIf="selectedTab === 'backups'" class="section-backups">
     <ion-card>
       <ion-card-header>
         <ion-card-title>Backups del Servidor</ion-card-title>
       </ion-card-header>
       <ion-card-content>
-        <ion-button expand="block" color="tertiary">Crear Backup</ion-button>
-        <p>Lista de backups disponibles para descarga</p>
+        <ion-button expand="block" color="tertiary" (click)="createBackup()">Crear Backup</ion-button>
+        <ion-list>
+          <ion-item *ngFor="let backup of backups">
+            <ion-label>{{ backup }}</ion-label>
+            <ion-button fill="outline" slot="end" href="{{ 'http://127.0.0.1:5000/backups/' + backup }}" download>
+              <ion-icon name="download-outline"></ion-icon>
+              Descargar
+            </ion-button>
+          </ion-item>
+        </ion-list>
       </ion-card-content>
     </ion-card>
-   </div>
+  </div>
 
   <!-- Configuración -->
-   <div *ngIf="selectedTab === 'config'">
+  <div *ngIf="selectedTab === 'config'" class="section-config">
     <ion-card>
       <ion-card-header>
         <ion-card-title>Configuración del Servidor</ion-card-title>
+        <!-- Botones -->
+        <ion-buttons>
+          <ion-button expand="block" color="primary" (click)="saveServerProperties()">Guardar Cambios</ion-button>
+          <ion-button expand="block" color="secondary" (click)="loadServerProperties()">Recargar
+            Configuración</ion-button>
+        </ion-buttons>
       </ion-card-header>
       <ion-card-content>
-        <p>Configurador visual de `server.properties` proximamente</p>
+
+        <!-- Booleanos como Switches -->
+        <ion-item *ngFor="let key of booleanKeys">
+          <ion-label>{{ key }}</ion-label>
+          <ion-toggle [(ngModel)]="serverProperties[key]" [checked]="serverProperties[key] === 'true'"></ion-toggle>
+        </ion-item>
+
+        <!-- Selects con placeholder -->
+        <ion-item *ngFor="let key of selectKeys">
+          <ion-label>{{ key }}</ion-label>
+          <ion-select [(ngModel)]="serverProperties[key]" interface="popover" [placeholder]="serverProperties[key]">
+            <ion-select-option *ngFor="let opt of selectOptions[key]" [value]="opt">{{ opt }}</ion-select-option>
+          </ion-select>
+        </ion-item>
+
+        <!-- Sliders para números -->
+        <ion-item *ngFor="let key of numericKeys">
+          <ion-label>{{ key }}</ion-label>
+          <ion-range [(ngModel)]="serverProperties[key]" [min]="0" [max]="1000" [pin]="true" [snaps]="true" [step]="1"
+            [disabled]="isPortOrExtreme(key)">
+            <ion-label slot="end">{{ serverProperties[key] }}</ion-label>
+          </ion-range>
+        </ion-item>
+
+        <!-- Strings normales -->
+        <ion-item *ngFor="let key of stringKeys">
+          <ion-label>{{ key }}</ion-label>
+          <ion-input [(ngModel)]="serverProperties[key]" [placeholder]="serverProperties[key]"></ion-input>
+        </ion-item>
+
+
       </ion-card-content>
     </ion-card>
-   </div>
+  </div>
+
 </ion-content>

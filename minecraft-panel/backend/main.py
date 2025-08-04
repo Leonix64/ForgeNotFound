@@ -1,12 +1,15 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
+from mcrcon import MCRcon
 from flask_cors import CORS
 from subprocess import Popen, PIPE
 from datetime import datetime
+import re
 import os
 import time
 import threading
 import queue
 import psutil
+import zipfile
 
 app = Flask(__name__)
 CORS(app)
@@ -17,6 +20,16 @@ log_reader_thread = None
 stop_log_reader = False
 LOG_FILE = 'logs/latest.log'
 LOG_CHUNK_SIZE = 1000
+SERVER_PROPERTIES_PATH = 'server.properties'
+
+RCON_HOST = '127.0.0.1'
+RCON_PORT = 25575
+RCON_PASSWORD = '49021'
+BACKUP_DIR = 'backups'
+
+# Asegurar que directorios existan
+os.makedirs('logs', exist_ok=True)
+os.makedirs(BACKUP_DIR, exist_ok=True)
 
 def log_reader():
     global stop_log_reader
@@ -32,6 +45,7 @@ def log_reader():
     except Exception as e:
         print(f"Error en log_reader: {e}")
 
+# Iniciar el servidor
 @app.route('/start', methods=["POST"])
 def start_server():
     global server_process, log_reader_thread, stop_log_reader
@@ -48,7 +62,7 @@ def start_server():
         stop_log_reader = False
         
         server_process = Popen(
-            ["java", "-Xmx8G", "-Xms4G", "-jar", 
+            ["java", "-Xmx16G", "-Xms8G", "-jar", 
              ".fabric/server/fabric-loader-server-0.16.14-minecraft-1.21.6.jar", "nogui"],
             stdout=open(LOG_FILE, 'a'),
             stderr=open(LOG_FILE, 'a'),
@@ -65,6 +79,7 @@ def start_server():
     except Exception as e:
         return jsonify({"status": "Error", "error": str(e)}), 500
 
+# Detener el servidor
 @app.route('/stop', methods=["POST"])
 def stop_server():
     global server_process, stop_log_reader
@@ -83,12 +98,14 @@ def stop_server():
         server_process = None
         stop_log_reader = True  # Detener el hilo de logs
 
+# Obtener el estado del servidor
 @app.route('/status', methods=["GET"])
 def server_status():
     if server_process and server_process.poll() is None:
         return jsonify({"status": "running"})
     return jsonify({"status": "stopped"})
 
+# Obtener logs
 @app.route('/logs', methods=["GET"])
 def get_logs():
     lines = []
@@ -96,76 +113,151 @@ def get_logs():
         lines.append(log_queue.get())
     return ''.join(lines)
 
+# Enviar comando al servidor
 @app.route('/command', methods=["POST"])
 def send_command():
-    if not server_process or server_process.poll() is not None:
-        return jsonify({"status": "El servidor no está en ejecución"}), 400
-    
     cmd = request.json.get("cmd", "").strip()
     if not cmd:
         return jsonify({"status": "Comando vacío"}), 400
     
     try:
-        server_process.stdin.write(f"{cmd}\n")
-        server_process.stdin.flush()
-        return jsonify({"status": f"Comando '{cmd}' enviado"})
+        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
+            response = mcr.command(cmd)
+            return jsonify({"status": "Ok", "response": response})
     except Exception as e:
-        return jsonify({"status": "Error", "error": str(e)}), 500
+        return jsonify({"status": "Error al enviar comando", "error": str(e)}), 500
 
-@app.route('/players', methods=["GET"])
-def list_players():
+# Obtener jugadores en línea
+@app.route('/players/online', methods=["GET"])
+def online_players():
     try:
-        players = {}  # nombre: hora entrada
-        if os.path.exists(LOG_FILE):
-            with open(LOG_FILE, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if "joined the game" in line:
-                        try:
-                            hora = line.split("]")[0].replace("[", "").strip()
-                            name = line.split("[INFO]: ")[-1].split(" joined the game")[0].strip()
-                            if name not in players:
-                                players[name] = hora
-                        except:
-                            continue
-        result = []
-        for name, hora in players.items():
-            result.append({
-                "name": name,
-                "joined_at": hora
-            })
-        return jsonify(result)
+        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
+            resp = mcr.command("list") # Minecraft command
+            print("Respuesta de RCON:", resp)
+
+        parts = resp.split(":")
+        if len(parts) > 1:
+            names = [p.strip() for p in parts[1].split(",") if p.strip()]
+        else:
+            names = []
+
+        return jsonify({
+            "players": names,
+            "count": len(names)
+        })
+    
     except Exception as e:
-        return jsonify({"status": "Error al obtener jugadores", "error": str(e)}), 500
+        return jsonify({"status": "Error al obtener jugadores en línea", "error": str(e)}), 500
+    
+@app.route('/kick', methods=["POST"])
+def kick_player():
+    name = request.json.get("name", "").strip()
+    if not name:
+        return jsonify({"status": "Nombre vacío"}), 400
+    
+    try:
+        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
+            resp = mcr.command(f"kick {name} You have been kicked by an admin. Are you stupid?")
+            return jsonify({"status": "Ok", "response": resp})
+    except Exception as e:
+        return jsonify({"status": "Error al expulsar jugador", "error": str(e)}), 500
+    
+@app.route('/ban', methods=["POST"])
+def ban_player():
+    name = request.json.get("name", "").strip()
+    if not name:
+        return jsonify({"status": "Nombre vacío"}), 400
+    
+    try:
+        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
+            resp = mcr.command(f"ban {name} You have been banned by an admin.")
+            return jsonify({"status": "Ok", "response": resp})
+    except Exception as e:
+        return jsonify({"status": "Error al banear jugador", "error": str(e)}), 500
+
+@app.route('/say', methods=["POST"])
+def say_message():
+    msg = request.json.get("msg", "").strip()
+    if not msg:
+        return jsonify({"status": "Mensaje vacío"}), 400
+    
+    try:
+        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
+            resp = mcr.command(f"say {msg}")
+            return jsonify({"status": "Ok", "response": resp})
+    except Exception as e:
+        return jsonify({"status": "Error al enviar mensaje", "error": str(e)}), 500
     
 @app.route('/backup', methods=["POST"])
-def backup_server():
+def create_backup():
     try:
-        timestamp = time.strftime("%d%m%Y_%H%M%S")
-        os.system(f"zip -r backups/backup_{timestamp}.zip world")
-        return jsonify({"status": "Backup creado exitosamente"})
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_file = os.path.join(BACKUP_DIR, f"backup_{timestamp}.zip")
+        
+        with zipfile.ZipFile(zip_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, _, files in os.walk('world'):
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    arcname = os.path.relpath(full_path, 'Test05')
+                    zipf.write(full_path, arcname)
+        return jsonify({"status": "Backup creado", "file": zip_file})
     except Exception as e:
-        return jsonify({"status": "Error al crear el backup", "error": str(e)}), 500
+        return jsonify({"status": "Error al crear backup", "error": str(e)}), 500
+    
+@app.route('/backups', methods=["GET"])
+def list_backups():
+    try:
+        files = os.listdir(BACKUP_DIR)
+        zips = sorted([f for f in files if f.endswith('.zip')])
+        return jsonify({"status": "Ok", "backups": zips})
+    except Exception as e:
+        return jsonify({"status": "Error al listar backups", "error": str(e)}), 500
     
 @app.route('/metrics', methods=["GET"])
 def server_metrics():
     if server_process:
-        p = psutil.Process(server_process.pid)
-        return jsonify({
-            "cpu": p.cpu_percent(interval=1),
-            "memory": p.memory_info().rss / (1024 * 1024),  # Convert to MB
-            "status": "running" if server_process.poll() is None else "stopped"
-        })
+        try:
+            p = psutil.Process(server_process.pid)
+            return jsonify({
+                "cpu": p.cpu_percent(interval=1),
+                "memory": p.memory_info().rss / (1024 * 1024),
+                "status": "running"
+            })
+        except:
+            pass
     return jsonify({"cpu": 0, "memory": 0, "status": "stopped"})
 
+@app.route('/server_properties', methods=["GET"])
+def get_server_properties():
+    props = {}
+    try:
+        with open(SERVER_PROPERTIES_PATH, 'r') as f:
+            for line in f:
+                if not line.strip().startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    props[key] = value
+        return jsonify(props)
+    except Exception as e:
+        return jsonify({"status": "Error al leer server.properties", "error": str(e)}), 500
+    
+@app.route('/save_properties', methods=["POST"])
+def update_server_properties():
+    try:
+        data = request.json
+        with open(SERVER_PROPERTIES_PATH, 'w') as f:
+            for key, val in data.items():
+                f.write(f"{key}={val}\n")
+        return jsonify({"status": "server.properties actualizado"})
+    except Exception as e:
+        return jsonify({"status": "Error al actualizar server.properties", "error": str(e)}), 500
+
 @app.route('/crashwatch', methods=["GET"])
-def crash_watchdog():
+def crash_watch():
     if server_process and server_process.poll() is not None:
-        # reinicia
         start_server()
-        return jsonify({"status": "Reiniciado"})
+        return jsonify({"status": "Servidor reiniciado automáticamente"})
     return jsonify({"status": "Servidor en ejecución"})
 
+
 if __name__ == '__main__':
-    if not os.path.exists('logs'):
-        os.makedirs('logs')
     app.run(port=5000, debug=False)

@@ -14,13 +14,71 @@ export class AppComponent implements OnDestroy {
   loading = false;
   private logInterval: any;
   private statusInterval: any;
-  selectedTab = 'jugadores';
-  players: { name: string, joined_at: string }[] = [];
+  selectedTab = 'comandos';
+  players: string[] = [];
+  backups: string[] = [];
+  cpuUsage = 0;
+  memoryUsage = 0;
+  messageToBroadcast = '';
+  serverProperties: { [key: string]: string } = {};
+  selectedPlayer: string = '';
+  selectedQuickCommand: any = null;
+  commandResponse: string = '';
 
-  constructor(private http: HttpClient) {
+  quickCommands = [
+    { label: 'Kick', value: 'kick' },
+    { label: 'Ban', value: 'ban' },
+    { label: 'Op', value: 'op' },
+    { label: 'Deop', value: 'deop' },
+    { label: 'Teleport to player', value: 'tp @s' },
+    { label: 'Gamemode Survival', value: 'gamemode survival' },
+    { label: 'Gamemode Creative', value: 'gamemode creative' },
+    { label: 'Gamemode Adventure', value: 'gamemode adventure' },
+    { label: 'Gamemode Spectator', value: 'gamemode spectator' },
+  ];
+
+  booleanKeys = [
+    "accepts-transfers", "allow-flight", "allow-nether", "broadcast-console-to-ops",
+    "broadcast-rcon-to-ops", "enable-command-block", "enable-jmx-monitoring",
+    "enable-query", "enable-rcon", "enable-status", "enforce-secure-profile",
+    "enforce-whitelist", "force-gamemode", "generate-structures", "hardcore",
+    "hide-online-players", "log-ips", "online-mode", "prevent-proxy-connections",
+    "pvp", "require-resource-pack", "spawn-monsters", "sync-chunk-writes",
+    "use-native-transport", "white-list"
+  ];
+
+  numericKeys = [
+    "entity-broadcast-range-percentage", "function-permission-level",
+    "max-chained-neighbor-updates", "max-players", "max-tick-time",
+    "max-world-size", "network-compression-threshold", "op-permission-level",
+    "pause-when-empty-seconds", "player-idle-timeout", "query.port",
+    "rate-limit", "rcon.port", "server-port", "simulation-distance",
+    "spawn-protection", "text-filtering-version", "view-distance"
+  ];
+
+  selectKeys = ["difficulty", "gamemode", "region-file-compression", "level-type"];
+
+  selectOptions: { [key: string]: string[] } = {
+    difficulty: ["peaceful", "easy", "normal", "hard"],
+    gamemode: ["survival", "creative", "adventure", "spectator"],
+    "region-file-compression": ["none", "gzip", "zlib", "deflate"],
+    "level-type": ["minecraft:normal", "minecraft:flat", "minecraft:large_biomes", "minecraft:amplified"]
+  };
+
+  constructor(private http: HttpClient) { }
+
+  ngOnInit() {
+    this.logs = localStorage.getItem('logs') || '';
     this.checkServerStatus();
     this.loadPlayers();
-    this.statusInterval = setInterval(() => this.checkServerStatus(), 5000);
+    this.loadMetrics();
+    this.loadBackups();
+    this.loadServerProperties();
+    this.statusInterval = setInterval(() => {
+      this.checkServerStatus();
+      this.loadMetrics();
+    }, 5000);
+    setInterval(() => this.loadPlayers(), 10000); // auto refresco de jugadores cada 10s
   }
 
   ngOnDestroy() {
@@ -49,6 +107,9 @@ export class AppComponent implements OnDestroy {
       next: () => {
         clearInterval(this.logInterval);
         this.serverStatus = 'deteniendo...';
+
+        this.logs = ''; // Limpiar logs al detener
+        localStorage.removeItem('logs'); // Limpiar logs en localStorage
       },
       error: (err) => {
         console.error('Error al detener:', err);
@@ -58,12 +119,54 @@ export class AppComponent implements OnDestroy {
     });
   }
 
-  sendCommand() {
+  /*sendCommand() {
     if (!this.command.trim()) return;
 
     this.http.post('http://127.0.0.1:5000/command', { cmd: this.command }).subscribe({
       next: () => this.command = '',
       error: (err) => console.error('Error en comando:', err)
+    });
+  }*/
+  sendCommand() {
+    if (!this.command.trim()) return;
+
+    fetch('http://127.0.0.1:5000/command', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ cmd: this.command })
+    })
+    .then(res => res.json())
+    .then(data => {
+      this.commandResponse = data.output || 'Comando ejecutado.';
+      this.command = ''; // Limpiar el campo de comando
+    })
+    .catch(err => {
+      console.error(err);
+      this.commandResponse = 'Error al ejecutar el comando.';
+    });
+  }
+
+  kickPlayer(name: string) {
+    this.http.post('http://127.0.0.1:5000/kick', { name }).subscribe({
+      next: () => this.loadPlayers(),
+      error: (err) => console.error('Error al expulsar jugador:', err)
+    });
+  }
+
+  banPlayer(name: string) {
+    this.http.post('http://127.0.0.1:5000/ban', { name }).subscribe({
+      next: () => this.loadPlayers(),
+      error: (err) => console.error('Error al banear jugador:', err)
+    });
+  }
+
+  broadcastMessage() {
+    if (!this.messageToBroadcast.trim()) return;
+    this.http.post('http://127.0.0.1:5000/say', { msg: this.messageToBroadcast }).subscribe({
+      next: () => (this.messageToBroadcast = ''),
+      error: (err) => console.error('Error al enviar mensaje:', err),
     });
   }
 
@@ -72,6 +175,7 @@ export class AppComponent implements OnDestroy {
       next: (data) => {
         if (data) {
           this.logs += data;
+          localStorage.setItem('logs', this.logs); // Guardar logs en localStorage
           this.scrollToBottom();
         }
       },
@@ -98,23 +202,134 @@ export class AppComponent implements OnDestroy {
   }
 
   loadPlayers() {
-    this.http.get<{ name: string, joined_at: string }[]>('http://127.0.0.1:5000/players').subscribe({
-      next: (res) => this.players = res,
-      error: () => this.players = []
+    this.http.get<{ players: string[], count: number }>('http://127.0.0.1:5000/players/online').subscribe({
+      next: (res) => {
+        this.players = res.players;
+        console.log('Jugadores en línea:', this.players);
+      },
+      error: (err) => {
+        console.error('Error cargando jugadores:', err);
+        this.players = [];
+      }
     });
-    console.log('Jugadores cargados:', this.players);
   }
 
-  getOnlineTime(joinedAt: string): string {
-    const now = new Date();
-    const [hours, minutes, seconds] = joinedAt.split(':').map(Number);
-    const joinedDate = new Date();
-    joinedDate.setHours(hours, minutes, seconds, 0);
+  loadMetrics() {
+    this.http.get<any>('http://127.0.0.1:5000/metrics').subscribe({
+      next: (data) => {
+        this.cpuUsage = data.cpu;
+        this.memoryUsage = data.memory;
+      },
+      error: (err) => {
+        console.error('Error cargando métricas:', err);
+      }
+    });
+  }
 
-    const diffMs = now.getTime() - joinedDate.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffSecs = Math.floor((diffMs % 60000) / 1000);
+  loadBackups() {
+    this.http.get<{ backups: string[] }>('http://127.0.0.1:5000/backups').subscribe({
+      next: (res) => (this.backups = res.backups),
+      error: (err) => console.error('Error cargando backups:', err)
+    });
+  }
 
-    return `${diffMins} min ${diffSecs} seg`;
+  createBackup() {
+    this.http.post('http://127.0.0.1:5000/backup', {}).subscribe({
+      next: () => this.loadBackups(),
+      error: (err) => console.error('Error creando backup:', err)
+    });
+  }
+
+  get stringKeys() {
+    return Object.keys(this.serverProperties).filter(k =>
+      !this.booleanKeys.includes(k) &&
+      !this.numericKeys.includes(k) &&
+      !this.selectKeys.includes(k)
+    );
+  }
+
+  get propertyKeys(): string[] {
+    return Object.keys(this.serverProperties);
+  }
+
+  loadServerProperties() {
+    this.http.get<{ [key: string]: string }>('http://127.0.0.1:5000/server_properties').subscribe({
+      next: (res) => {
+        for (const k in res) {
+          let clean = res[k].trim();
+
+          if (this.booleanKeys.includes(k)) {
+            this.serverProperties[k] = clean === "true" ? 'true' : 'false';
+          } else if (this.numericKeys.includes(k)) {
+            this.serverProperties[k] = Number(clean).toString();
+          } else {
+            this.serverProperties[k] = clean;
+          }
+        }
+        console.log('Propiedades del servidor cargadas:', this.serverProperties);
+      },
+      error: (err) => {
+        console.error('Error cargando propiedades del servidor:', err);
+      }
+    });
+  }
+
+  saveServerProperties() {
+    const payload: { [key: string]: string } = {};
+    for (const k in this.serverProperties) {
+      let val = this.serverProperties[k];
+      if (this.booleanKeys.includes(k)) {
+        payload[k] = val === 'true' ? 'true' : 'false';
+      } else {
+        payload[k] = String(val);
+      }
+    }
+
+    this.http.post('http://127.0.0.1:5000/save_properties', payload).subscribe({
+      next: () => {
+        console.log('Propiedades guardadas correctamente');
+      },
+      error: (err) => {
+        console.error('Error guardando propiedades del servidor:', err);
+      }
+    });
+  }
+
+  isPortOrExtreme(key: string): boolean {
+    return key.includes('port') || ['max-world-size', 'max-chained-neighbor-updates'].includes(key);
+  }
+
+  fillQuickCommand() {
+    const cmd = this.selectedQuickCommand?.value || '';
+    const player = this.selectedPlayer || '';
+
+    // Si es un comando que requiere un jugador, lo añadimos
+    if (cmd.includes('@s')) {
+      this.command = cmd.replace('@s', player);
+    } else if (player) {
+      this.command = `${cmd} ${player}`;
+    } else {
+      this.command = cmd;
+    }
+  }
+
+  runQuick(cmd: string) {
+    if (!cmd.trim()) return;
+
+    fetch('http://127.0.0.1:5000/command', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ cmd })
+    })
+    .then(res => res.json())
+    .then(data => {
+      this.commandResponse = data.response || 'Comando ejecutado.';
+    })
+    .catch(err => {
+      console.error(err);
+      this.commandResponse = 'Error al ejecutar el comando.';
+    });
   }
 }
