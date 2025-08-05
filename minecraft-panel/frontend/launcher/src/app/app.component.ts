@@ -1,5 +1,5 @@
 import { Component, OnDestroy } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { EndpointsService } from './services/endpoints.service';
 
 @Component({
   selector: 'app-root',
@@ -65,7 +65,7 @@ export class AppComponent implements OnDestroy {
     "level-type": ["minecraft:normal", "minecraft:flat", "minecraft:large_biomes", "minecraft:amplified"]
   };
 
-  constructor(private http: HttpClient) { }
+  constructor(private endpoints: EndpointsService) { }
 
   ngOnInit() {
     this.logs = localStorage.getItem('logs') || '';
@@ -78,7 +78,7 @@ export class AppComponent implements OnDestroy {
       this.checkServerStatus();
       this.loadMetrics();
     }, 5000);
-    setInterval(() => this.loadPlayers(), 10000); // auto refresco de jugadores cada 10s
+    setInterval(() => this.loadPlayers(), 10000);
   }
 
   ngOnDestroy() {
@@ -88,7 +88,7 @@ export class AppComponent implements OnDestroy {
 
   startServer() {
     this.loading = true;
-    this.http.post('http://127.0.0.1:5000/start', {}).subscribe({
+    this.endpoints.startServer().subscribe({
       next: () => {
         this.logInterval = setInterval(() => this.loadLogs(), 1000);
         this.serverStatus = 'iniciando...';
@@ -103,13 +103,12 @@ export class AppComponent implements OnDestroy {
 
   stopServer() {
     this.loading = true;
-    this.http.post('http://127.0.0.1:5000/stop', {}).subscribe({
+    this.endpoints.stopServer().subscribe({
       next: () => {
         clearInterval(this.logInterval);
         this.serverStatus = 'deteniendo...';
-
-        this.logs = ''; // Limpiar logs al detener
-        localStorage.removeItem('logs'); // Limpiar logs en localStorage
+        this.logs = '';
+        localStorage.removeItem('logs');
       },
       error: (err) => {
         console.error('Error al detener:', err);
@@ -119,44 +118,29 @@ export class AppComponent implements OnDestroy {
     });
   }
 
-  /*sendCommand() {
-    if (!this.command.trim()) return;
-
-    this.http.post('http://127.0.0.1:5000/command', { cmd: this.command }).subscribe({
-      next: () => this.command = '',
-      error: (err) => console.error('Error en comando:', err)
-    });
-  }*/
   sendCommand() {
     if (!this.command.trim()) return;
-
-    fetch('http://127.0.0.1:5000/command', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
+    this.endpoints.sendCommand(this.command).subscribe({
+      next: (res: any) => {
+        this.commandResponse = res.output || 'Comando ejecutado.';
+        this.command = '';
       },
-      body: JSON.stringify({ cmd: this.command })
-    })
-    .then(res => res.json())
-    .then(data => {
-      this.commandResponse = data.output || 'Comando ejecutado.';
-      this.command = ''; // Limpiar el campo de comando
-    })
-    .catch(err => {
-      console.error(err);
-      this.commandResponse = 'Error al ejecutar el comando.';
+      error: (err) => {
+        console.error(err);
+        this.commandResponse = 'Error al ejecutar el comando.';
+      }
     });
   }
 
   kickPlayer(name: string) {
-    this.http.post('http://127.0.0.1:5000/kick', { name }).subscribe({
+    this.endpoints.kickPlayer(name).subscribe({
       next: () => this.loadPlayers(),
       error: (err) => console.error('Error al expulsar jugador:', err)
     });
   }
 
   banPlayer(name: string) {
-    this.http.post('http://127.0.0.1:5000/ban', { name }).subscribe({
+    this.endpoints.banPlayer(name).subscribe({
       next: () => this.loadPlayers(),
       error: (err) => console.error('Error al banear jugador:', err)
     });
@@ -164,18 +148,18 @@ export class AppComponent implements OnDestroy {
 
   broadcastMessage() {
     if (!this.messageToBroadcast.trim()) return;
-    this.http.post('http://127.0.0.1:5000/say', { msg: this.messageToBroadcast }).subscribe({
-      next: () => (this.messageToBroadcast = ''),
+    this.endpoints.broadcastMessage(this.messageToBroadcast).subscribe({
+      next: () => this.messageToBroadcast = '',
       error: (err) => console.error('Error al enviar mensaje:', err),
     });
   }
 
   private loadLogs() {
-    this.http.get('http://127.0.0.1:5000/logs', { responseType: 'text' }).subscribe({
+    this.endpoints.getLogs().subscribe({
       next: (data) => {
         if (data) {
           this.logs += data;
-          localStorage.setItem('logs', this.logs); // Guardar logs en localStorage
+          localStorage.setItem('logs', this.logs);
           this.scrollToBottom();
         }
       },
@@ -186,15 +170,13 @@ export class AppComponent implements OnDestroy {
   private scrollToBottom() {
     setTimeout(() => {
       const textarea = document.querySelector('ion-textarea textarea');
-      if (textarea) {
-        textarea.scrollTop = textarea.scrollHeight;
-      }
+      if (textarea) textarea.scrollTop = textarea.scrollHeight;
     }, 100);
   }
 
   private checkServerStatus() {
-    this.http.get('http://127.0.0.1:5000/status').subscribe({
-      next: (res: any) => {
+    this.endpoints.getStatus().subscribe({
+      next: (res) => {
         this.serverStatus = res.status === 'running' ? 'en ejecución' : 'detenido';
       },
       error: () => this.serverStatus = 'error de conexión'
@@ -202,11 +184,8 @@ export class AppComponent implements OnDestroy {
   }
 
   loadPlayers() {
-    this.http.get<{ players: string[], count: number }>('http://127.0.0.1:5000/players/online').subscribe({
-      next: (res) => {
-        this.players = res.players;
-        console.log('Jugadores en línea:', this.players);
-      },
+    this.endpoints.getPlayers().subscribe({
+      next: (res) => this.players = res.players,
       error: (err) => {
         console.error('Error cargando jugadores:', err);
         this.players = [];
@@ -215,26 +194,24 @@ export class AppComponent implements OnDestroy {
   }
 
   loadMetrics() {
-    this.http.get<any>('http://127.0.0.1:5000/metrics').subscribe({
+    this.endpoints.getMetrics().subscribe({
       next: (data) => {
         this.cpuUsage = data.cpu;
         this.memoryUsage = data.memory;
       },
-      error: (err) => {
-        console.error('Error cargando métricas:', err);
-      }
+      error: (err) => console.error('Error cargando métricas:', err)
     });
   }
 
   loadBackups() {
-    this.http.get<{ backups: string[] }>('http://127.0.0.1:5000/backups').subscribe({
-      next: (res) => (this.backups = res.backups),
+    this.endpoints.getBackups().subscribe({
+      next: (res) => this.backups = res.backups,
       error: (err) => console.error('Error cargando backups:', err)
     });
   }
 
   createBackup() {
-    this.http.post('http://127.0.0.1:5000/backup', {}).subscribe({
+    this.endpoints.createBackup().subscribe({
       next: () => this.loadBackups(),
       error: (err) => console.error('Error creando backup:', err)
     });
@@ -253,24 +230,20 @@ export class AppComponent implements OnDestroy {
   }
 
   loadServerProperties() {
-    this.http.get<{ [key: string]: string }>('http://127.0.0.1:5000/server_properties').subscribe({
+    this.endpoints.getServerProperties().subscribe({
       next: (res) => {
         for (const k in res) {
           let clean = res[k].trim();
-
           if (this.booleanKeys.includes(k)) {
-            this.serverProperties[k] = clean === "true" ? 'true' : 'false';
+            this.serverProperties[k] = clean === 'true' ? 'true' : 'false';
           } else if (this.numericKeys.includes(k)) {
             this.serverProperties[k] = Number(clean).toString();
           } else {
             this.serverProperties[k] = clean;
           }
         }
-        console.log('Propiedades del servidor cargadas:', this.serverProperties);
       },
-      error: (err) => {
-        console.error('Error cargando propiedades del servidor:', err);
-      }
+      error: (err) => console.error('Error cargando propiedades del servidor:', err)
     });
   }
 
@@ -284,14 +257,9 @@ export class AppComponent implements OnDestroy {
         payload[k] = String(val);
       }
     }
-
-    this.http.post('http://127.0.0.1:5000/save_properties', payload).subscribe({
-      next: () => {
-        console.log('Propiedades guardadas correctamente');
-      },
-      error: (err) => {
-        console.error('Error guardando propiedades del servidor:', err);
-      }
+    this.endpoints.saveServerProperties(payload).subscribe({
+      next: () => console.log('Propiedades guardadas correctamente'),
+      error: (err) => console.error('Error guardando propiedades del servidor:', err)
     });
   }
 
@@ -302,8 +270,6 @@ export class AppComponent implements OnDestroy {
   fillQuickCommand() {
     const cmd = this.selectedQuickCommand?.value || '';
     const player = this.selectedPlayer || '';
-
-    // Si es un comando que requiere un jugador, lo añadimos
     if (cmd.includes('@s')) {
       this.command = cmd.replace('@s', player);
     } else if (player) {
@@ -315,21 +281,14 @@ export class AppComponent implements OnDestroy {
 
   runQuick(cmd: string) {
     if (!cmd.trim()) return;
-
-    fetch('http://127.0.0.1:5000/command', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
+    this.endpoints.sendCommand(cmd).subscribe({
+      next: (res: any) => {
+        this.commandResponse = res.output || 'Comando ejecutado.';
       },
-      body: JSON.stringify({ cmd })
-    })
-    .then(res => res.json())
-    .then(data => {
-      this.commandResponse = data.response || 'Comando ejecutado.';
-    })
-    .catch(err => {
-      console.error(err);
-      this.commandResponse = 'Error al ejecutar el comando.';
+      error: (err) => {
+        console.error(err);
+        this.commandResponse = 'Error al ejecutar el comando.';
+      }
     });
   }
 }
